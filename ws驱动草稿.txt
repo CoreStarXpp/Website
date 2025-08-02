@@ -1,0 +1,109 @@
+R0=$GPIO_ODR值
+R1=R10(GPIO_Bit)
+R2=R9（GPIO_ODR基址）
+R5=R8(RGB颜色值基址)
+R6=R11(灯珠数量)
+R7=R12(等待周期)
+
+// 预留返回地址
+EXIT_DATE:
+	.word 0x00000000								// 用于存储返回地址
+
+// 程序入口
+_start:
+// 备份返回地址
+	MOV R0, R14										// 复制返回地址
+	MOVW R1, #:lower16:EXIT_DATE
+	MOVT R1, #:upper16:EXIT_DATE					// 加载返回地址存储地址
+	STR R0, [R1]									// 存储返回地址
+// 加载数据
+	MOV R1, R10										// 加载GPIO_Bit(需要操作的端口)
+	MOV R2，R9										// 加载GPIO_ODR基址
+	LDR R0, [R2]									// 读取GPIO_ODR
+	BIC R0, R0, R1									// 端口置0
+	STR R0, [R2]									// 写入GPIO_ODR
+	MOV R5, R8										// 加载RGB(GRB)颜色基址
+	MOV R6, R11										// 加载灯珠数量
+	LDR R3, [R5], #4								// 读取RGB值
+	SUBS R6, R6, #1									// 更新剩余灯珠
+	MOV R7, R12										// 加载Reset等待周期
+// 循环程序入口
+Start:
+	MOV R4, #0x00800000								// 循环操作位
+	TST R3, R4										// 检测RGB值
+	NOP												// 等待标志
+	BNE Core_1										// RGB值=1跳转，=0略过
+// Core0 低位信号 0.2us高电平+0.6us低电平
+Core_0:
+	LDR R0, [R2]									// 读取GPIO_ODR寄存器
+	ORR R0, R0, R1									// 清除目标位
+	STR R0, [R2]									// 写入GPIO_ODR寄存器
+	MOV R0, #1										// 延时次数
+	BL WaitCore										// 跳转到延时程序
+	LDR R0, [R2]									// 读取GPIO_ODR寄存器
+	BIC R0, R0, R1									// 清除目标位
+	STR R0, [R2]									// 写入GPIO_ODR寄存器
+	MOV R0, #4										// 延时次数
+	BL WaitCore										// 跳转到延时程序
+	LSRS R4, R4, #1									// 切换检测位
+	BEQ Exit										// 检测完退出
+	TST R3, R4										// 检测RGB值
+	NOP												// 等待标志
+	BEQ Core_0
+
+// Core1 高位信号 0.55us高电平+0.3us低电平
+Core_1:
+	LDR R0, [R2]									// 读取GPIO_ODR寄存器
+	ORR R0, R0, R1									// 清除目标位
+	STR R0, [R2]									// 写入GPIO_ODR寄存器
+	MOV R0, #5										// 延时次数
+	BL WaitCore										// 跳转到延时程序
+	LDR R0, [R2]									// 读取GPIO_ODR寄存器
+	BIC R0, R0, R1									// 清除目标位
+	STR R0, [R2]									// 写入GPIO_ODR寄存器
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP												// 延时
+	LSRS R4, R4, #1									// 切换检测位
+	BEQ Exit										// 检测完退出
+	TST R3, R4										// 检测RGB值
+	NOP												// 等待标志
+	BEQ Core_0
+	B Core_1
+
+// 一次数据完成处理程序
+Exit:
+	CMP R6, #0										// 检查剩余灯珠数量
+	NOP												// 等待标志位
+	BNE ColorUpdate_ws 								//！=0则继续
+	BL Deep											//=0，延时刷新
+	MOVW R1, #:lower16:EXIT_DATE
+	MOVT R1, #:upper16:EXIT_DATE					// 加载返回地址存储地址
+	LDR R0, [R1]									// 读取返回地址
+	MOV R14, R0										// 加载返回地址
+	BX LR											// 返回
+
+// 颜色更新程序
+ColorUpdate_ws:
+	LDR R3, [R5], #4								// 读取RGB值
+	SUBS R6, R6, #1									// 更新剩余灯珠
+	B Start											// 开始新一次循环
+
+// Core时序补足程序
+WaitCore:
+	SUBS R0，R0，#1									// 递减
+	NOP												// 等待标志
+	BNE WaitCore									// ！=0则跳转
+	BX LR											// 返回
+
+// Reset延时程序
+Deep:
+	SUBS R7, R7, #1									// 递减
+	NOP												// 等待标志
+	BNE Deep										// ！=0则跳转
+	BX LR											// 返回
+
